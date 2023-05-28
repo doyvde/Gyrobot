@@ -1,33 +1,76 @@
-#include<Wire.h>
-#include<MPU6050.h>
+//Installing necessary libraries
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Servo.h>
 
-MPU6050 mpu;
 
-int16_t AccX, AccY, AccZ;
-float AccAngleX, AccAngleY, GyroAngleX, GyroAngleY, KalAngleX, KalAngleY;
-float roll, pitch;
+Adafruit_MPU6050 mpu;
 
-void setup()
-{
+//Defined Servo
+Servo leftServo;
+Servo rightServo;
+
+//Varibles
+
+double angleXP = 0.0;
+double targetAngle = 78;
+double Kp = 6.0;
+double Ki = 0.2;  // Terme intégral
+double Kd = 0.5;
+double lastError = 0.0;
+double totalError = 0.0;  // Erreur cumulée
+double dt = 15.0;
+
+int baseSpeed = 90;
+
+
+
+void setup() {
+  Serial.begin(9600);
   Wire.begin();
-  mpu.initialize();
+  mpu.begin();
+
+  //setting the pinmodes
+  leftServo.attach(11);
+  rightServo.attach(10);
+
+  //Init des servo
+  leftServo.write(90);  // set servo to mid-point
+  rightServo.write(90);  // set servo to mid-point
+
+  delay(5000);
 }
 
-void loop()
-{
-  mpu.getAcceleration(&AccX, &AccY, &AccZ);
-  AccAngleX = atan((float)AccY / sqrt(pow((float)AccX, 2) + pow((float)AccZ, 2))) * 57.29578;
-  AccAngleY = atan((float)AccX / sqrt(pow((float)AccY, 2) + pow((float)AccZ, 2))) * 57.29578;
+void loop() {
+  // lecture des données brutes de la centrale inertielle
+  sensors_event_t accel, gyro, temp;
+  mpu.getEvent(&accel, &gyro, &temp);
+
+  // conversion des données brutes en degrés d'inclinaison
+  double angleX = atan2(-accel.acceleration.y, -accel.acceleration.z) * (180 / M_PI);
+
+
+  int angleXP = -angleX;
+
+
+
+
+  // Contrôle des servomoteurs pour maintenir l'équilibre
+  double error = angleXP - targetAngle;
+  totalError += error;  // Accumulation de l'erreur
+  double pwm = Kp * error + Ki * totalError + Kd * (error - lastError) / dt;
   
-  KalAngleX = AccAngleX;
-  KalAngleY = AccAngleY;
+  lastError = error;
+  pwm = constrain(pwm, -255, 255);
+  Serial.println(pwm);
+
+  int leftSpeed = baseSpeed + pwm;
+  int rightSpeed = baseSpeed - pwm;
+
+  leftServo.write(map(leftSpeed, -255, 255, 0, 180));
+  rightServo.write(map(rightSpeed, -255, 255, 0, 180));
+
+  // Attente de la prochaine boucle
   
-  Serial.print("Roll: ");
-  roll = KalAngleX * 0.96 + GyroAngleX * 0.04;
-  Serial.print(roll);
-  Serial.print(", Pitch: ");
-  pitch = KalAngleY * 0.96 + GyroAngleY * 0.04;
-  Serial.println(pitch);
-  
-  delay(10);
+  delay(dt);
 }
